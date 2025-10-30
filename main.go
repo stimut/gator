@@ -44,6 +44,15 @@ func (c *commands) run(s *state, cmd command) error {
 	return c.commandMap[cmd.name](s, cmd)
 }
 
+func handlerReset(s *state, cmd command) error {
+	if len(cmd.args) != 0 {
+		return fmt.Errorf("expected no arguments")
+	}
+
+	_, err := s.db.Reset(context.Background())
+	return err
+}
+
 func handlerLogin(s *state, cmd command) error {
 	if len(cmd.args) != 1 {
 		return fmt.Errorf("single username argument expected with login command")
@@ -82,6 +91,8 @@ func handlerRegister(s *state, cmd command) error {
 func main() {
 	cfg := config.Read()
 	c := commands{make(map[string]func(*state, command) error)}
+
+	c.register("reset", handlerReset)
 
 	c.register("login", handlerLogin)
 	c.register("register", handlerRegister)
