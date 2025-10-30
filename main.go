@@ -88,6 +88,27 @@ func handlerRegister(s *state, cmd command) error {
 	return nil
 }
 
+func handlerUsers(s *state, cmd command) error {
+	if len(cmd.args) != 0 {
+		return fmt.Errorf("expected no arguments")
+	}
+
+	users, err := s.db.GetUsers(context.Background())
+	if err != nil {
+		return err
+	}
+
+	for _, usr := range users {
+		if usr.Name == s.config.User {
+			fmt.Printf("* %s (current)\n", usr.Name)
+		} else {
+			fmt.Printf("* %s\n", usr.Name)
+		}
+	}
+
+	return nil
+}
+
 func main() {
 	cfg := config.Read()
 	c := commands{make(map[string]func(*state, command) error)}
@@ -96,6 +117,7 @@ func main() {
 
 	c.register("login", handlerLogin)
 	c.register("register", handlerRegister)
+	c.register("users", handlerUsers)
 
 	a := os.Args
 	if len(a) < 2 {
