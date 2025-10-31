@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 	"github.com/stimut/gator/internal/database"
+	"github.com/stimut/gator/internal/rss"
 
 	"github.com/stimut/gator/internal/config"
 )
@@ -109,6 +110,21 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
+func handleAgg(s *state, cmd command) error {
+	if len(cmd.args) != 0 {
+		return fmt.Errorf("expected no arguments")
+	}
+
+	feed, err := rss.FetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(feed)
+
+	return nil
+}
+
 func main() {
 	cfg := config.Read()
 	c := commands{make(map[string]func(*state, command) error)}
@@ -118,6 +134,8 @@ func main() {
 	c.register("login", handlerLogin)
 	c.register("register", handlerRegister)
 	c.register("users", handlerUsers)
+
+	c.register("agg", handleAgg)
 
 	a := os.Args
 	if len(a) < 2 {
