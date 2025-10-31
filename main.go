@@ -17,8 +17,8 @@ import (
 )
 
 type state struct {
-	db     *database.Queries
-	config *config.Config
+	db  *database.Queries
+	cfg *config.Config
 }
 
 type command struct {
@@ -45,6 +45,17 @@ func (c *commands) run(s *state, cmd command) error {
 	return c.commandMap[cmd.name](s, cmd)
 }
 
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) error {
+		user, err := s.db.GetUserByName(context.Background(), s.cfg.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("failed to get current user: %w", err)
+		}
+
+		return handler(s, cmd, user)
+	}
+}
+
 func handlerReset(s *state, cmd command) error {
 	if len(cmd.args) != 0 {
 		return fmt.Errorf("expected no arguments")
@@ -64,7 +75,7 @@ func handlerLogin(s *state, cmd command) error {
 		return err
 	}
 
-	s.config.SetUser(usr.Name)
+	s.cfg.SetUser(usr.Name)
 	fmt.Printf("Logged in as %s\n", cmd.args[0])
 
 	return nil
@@ -82,7 +93,7 @@ func handlerRegister(s *state, cmd command) error {
 		return err
 	}
 
-	s.config.SetUser(usr.Name)
+	s.cfg.SetUser(usr.Name)
 	fmt.Printf("Created user: %s\n", usr.Name)
 	fmt.Println(usr)
 
@@ -100,7 +111,7 @@ func handlerUsers(s *state, cmd command) error {
 	}
 
 	for _, usr := range users {
-		if usr.Name == s.config.User {
+		if usr.Name == s.cfg.CurrentUserName {
 			fmt.Printf("* %s (current)\n", usr.Name)
 		} else {
 			fmt.Printf("* %s\n", usr.Name)
@@ -110,14 +121,9 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
-func handleAddFeed(s *state, cmd command) error {
+func handleAddFeed(s *state, cmd command, user database.User) error {
 	if len(cmd.args) != 2 {
 		return fmt.Errorf("expected name and url arguments")
-	}
-
-	user, err := s.db.GetUserByName(context.Background(), s.config.User)
-	if err != nil {
-		return fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	feed, err := s.db.CreateFeed(
@@ -174,7 +180,7 @@ func handleFeeds(s *state, cmd command) error {
 	return nil
 }
 
-func handleFollow(s *state, cmd command) error {
+func handleFollow(s *state, cmd command, user database.User) error {
 	if len(cmd.args) != 1 {
 		return fmt.Errorf("expected url of feed to follow")
 	}
@@ -182,11 +188,6 @@ func handleFollow(s *state, cmd command) error {
 	feed, err := s.db.GetFeedByUrl(context.Background(), cmd.args[0])
 	if err != nil {
 		return fmt.Errorf("failed to get feed: %w", err)
-	}
-
-	user, err := s.db.GetUserByName(context.Background(), s.config.User)
-	if err != nil {
-		return fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	follow, err := s.db.CreateFeedFollow(
@@ -207,14 +208,9 @@ func handleFollow(s *state, cmd command) error {
 	return nil
 }
 
-func handleFollowing(s *state, cmd command) error {
+func handleFollowing(s *state, cmd command, user database.User) error {
 	if len(cmd.args) != 0 {
 		return fmt.Errorf("expected no arguments")
-	}
-
-	user, err := s.db.GetUserByName(context.Background(), s.config.User)
-	if err != nil {
-		return fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	follows, err := s.db.GetFeedFollowsForUser(context.Background(), user.ID)
@@ -255,10 +251,10 @@ func main() {
 	c.register("register", handlerRegister)
 	c.register("users", handlerUsers)
 
-	c.register("addfeed", handleAddFeed)
+	c.register("addfeed", middlewareLoggedIn(handleAddFeed))
 	c.register("feeds", handleFeeds)
-	c.register("follow", handleFollow)
-	c.register("following", handleFollowing)
+	c.register("follow", middlewareLoggedIn(handleFollow))
+	c.register("following", middlewareLoggedIn(handleFollowing))
 
 	c.register("agg", handleAgg)
 
@@ -269,7 +265,7 @@ func main() {
 	}
 
 	s := state{}
-	s.config = &cfg
+	s.cfg = &cfg
 
 	db, err := sql.Open("postgres", cfg.DbUrl)
 	if err != nil {
