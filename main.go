@@ -110,6 +110,35 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
+func handleAddFeed(s *state, cmd command) error {
+	if len(cmd.args) != 2 {
+		return fmt.Errorf("expected name and url arguments")
+	}
+
+	user, err := s.db.GetUser(context.Background(), s.config.User)
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	_, err = s.db.CreateFeed(
+		context.Background(),
+		database.CreateFeedParams{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Name:      cmd.args[0],
+			Url:       cmd.args[1],
+			UserID:    user.ID,
+		})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Added feed %s\n", cmd.args[0])
+
+	return nil
+}
+
 func handleAgg(s *state, cmd command) error {
 	if len(cmd.args) != 0 {
 		return fmt.Errorf("expected no arguments")
@@ -134,6 +163,8 @@ func main() {
 	c.register("login", handlerLogin)
 	c.register("register", handlerRegister)
 	c.register("users", handlerUsers)
+
+	c.register("addfeed", handleAddFeed)
 
 	c.register("agg", handleAgg)
 
