@@ -208,6 +208,26 @@ func handleFollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handleUnfollow(s *state, cmd command, user database.User) error {
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("expected url of feed to unfollow")
+	}
+
+	feed, err := s.db.GetFeedByUrl(context.Background(), cmd.args[0])
+	if err != nil {
+		return fmt.Errorf("failed to get feed: %w", err)
+	}
+
+	err = s.db.DeleteFeedFollow(context.Background(), database.DeleteFeedFollowParams{UserID: user.ID, FeedID: feed.ID})
+	if err != nil {
+		return fmt.Errorf("failed to unfollow feed: %w", err)
+	}
+
+	fmt.Printf("%s is no longer following %s\n", user.Name, feed.Name)
+
+	return nil
+}
+
 func handleFollowing(s *state, cmd command, user database.User) error {
 	if len(cmd.args) != 0 {
 		return fmt.Errorf("expected no arguments")
@@ -254,6 +274,7 @@ func main() {
 	c.register("addfeed", middlewareLoggedIn(handleAddFeed))
 	c.register("feeds", handleFeeds)
 	c.register("follow", middlewareLoggedIn(handleFollow))
+	c.register("unfollow", middlewareLoggedIn(handleUnfollow))
 	c.register("following", middlewareLoggedIn(handleFollowing))
 
 	c.register("agg", handleAgg)
