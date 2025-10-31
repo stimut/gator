@@ -59,7 +59,7 @@ func handlerLogin(s *state, cmd command) error {
 		return fmt.Errorf("single username argument expected with login command")
 	}
 
-	usr, err := s.db.GetUser(context.Background(), cmd.args[0])
+	usr, err := s.db.GetUserByName(context.Background(), cmd.args[0])
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func handlerUsers(s *state, cmd command) error {
 		return fmt.Errorf("expected no arguments")
 	}
 
-	users, err := s.db.GetUsers(context.Background())
+	users, err := s.db.GetAllUsers(context.Background())
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func handleAddFeed(s *state, cmd command) error {
 		return fmt.Errorf("expected name and url arguments")
 	}
 
-	user, err := s.db.GetUser(context.Background(), s.config.User)
+	user, err := s.db.GetUserByName(context.Background(), s.config.User)
 	if err != nil {
 		return fmt.Errorf("failed to get current user: %w", err)
 	}
@@ -135,6 +135,28 @@ func handleAddFeed(s *state, cmd command) error {
 	}
 
 	fmt.Printf("Added feed %s\n", cmd.args[0])
+
+	return nil
+}
+
+func handleFeeds(s *state, cmd command) error {
+	if len(cmd.args) != 0 {
+		return fmt.Errorf("expected no arguments")
+	}
+
+	feeds, err := s.db.GetAllFeeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get feeds: %w", err)
+	}
+
+	for _, feed := range feeds {
+		user, err := s.db.GetUserById(context.Background(), feed.UserID)
+		if err != nil {
+			return fmt.Errorf("failed to get feed-owning user: %w", err)
+		}
+
+		fmt.Printf("* %s: %s (%s)\n", feed.Name, feed.Url, user.Name)
+	}
 
 	return nil
 }
@@ -165,6 +187,7 @@ func main() {
 	c.register("users", handlerUsers)
 
 	c.register("addfeed", handleAddFeed)
+	c.register("feeds", handleFeeds)
 
 	c.register("agg", handleAgg)
 
