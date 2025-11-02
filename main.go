@@ -129,12 +129,10 @@ func handleAddFeed(s *state, cmd command, user database.User) error {
 	feed, err := s.db.CreateFeed(
 		context.Background(),
 		database.CreateFeedParams{
-			ID:        uuid.New(),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-			Name:      cmd.args[0],
-			Url:       cmd.args[1],
-			UserID:    user.ID,
+			ID:     uuid.New(),
+			Name:   cmd.args[0],
+			Url:    cmd.args[1],
+			UserID: user.ID,
 		})
 	if err != nil {
 		return err
@@ -143,11 +141,9 @@ func handleAddFeed(s *state, cmd command, user database.User) error {
 	_, err = s.db.CreateFeedFollow(
 		context.Background(),
 		database.CreateFeedFollowParams{
-			ID:        uuid.New(),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-			UserID:    user.ID,
-			FeedID:    feed.ID,
+			ID:     uuid.New(),
+			UserID: user.ID,
+			FeedID: feed.ID,
 		})
 	if err != nil {
 		return fmt.Errorf("failed to follow feed: %w", err)
@@ -193,11 +189,9 @@ func handleFollow(s *state, cmd command, user database.User) error {
 	follow, err := s.db.CreateFeedFollow(
 		context.Background(),
 		database.CreateFeedFollowParams{
-			ID:        uuid.New(),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-			UserID:    user.ID,
-			FeedID:    feed.ID,
+			ID:     uuid.New(),
+			UserID: user.ID,
+			FeedID: feed.ID,
 		})
 	if err != nil {
 		return fmt.Errorf("failed to follow feed: %w", err)
@@ -247,16 +241,49 @@ func handleFollowing(s *state, cmd command, user database.User) error {
 }
 
 func handleAgg(s *state, cmd command) error {
-	if len(cmd.args) != 0 {
-		return fmt.Errorf("expected no arguments")
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("expected argument for time between requests")
 	}
 
-	feed, err := rss.FetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+	waitTime, err := time.ParseDuration(cmd.args[0])
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid argument for time between requests: %w", err)
 	}
 
-	fmt.Println(feed)
+	fmt.Printf("Collecting feeds every %v\n", waitTime)
+	ticker := time.NewTicker(waitTime)
+	for ; ; <-ticker.C {
+		err := scrapeNextFeed(s)
+		if err != nil {
+			return fmt.Errorf("failed to scrape feeds: %w", err)
+		}
+	}
+}
+
+func scrapeNextFeed(s *state) error {
+	feed, err := s.db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to fetch next feed: %w", err)
+	}
+
+	if s.db.MarkFeedFetched(
+		context.Background(),
+		database.MarkFeedFetchedParams{
+			ID:            feed.ID,
+			LastFetchedAt: sql.NullTime{Time: time.Now(), Valid: true}}) != nil {
+		return fmt.Errorf("failed to mark feed as fetched: %w", err)
+	}
+
+	contents, err := rss.FetchFeed(context.Background(), feed.Url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch feed: %w", err)
+	}
+
+	fmt.Println(contents.Channel.Title)
+	for _, it := range contents.Channel.Item {
+		fmt.Printf("* %s\n", it.Title)
+	}
+	fmt.Println()
 
 	return nil
 }
