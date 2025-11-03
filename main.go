@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/stimut/gator/internal/database"
 	"github.com/stimut/gator/internal/rss"
 
@@ -240,6 +242,39 @@ func handleFollowing(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handleBrowse(s *state, cmd command, user database.User) error {
+	if len(cmd.args) > 1 {
+		return fmt.Errorf("expected only 1 optional argument")
+	}
+
+	limit := 2
+	if len(cmd.args) == 1 {
+		var err error
+		limit, err = strconv.Atoi(cmd.args[0])
+		if err != nil {
+			return fmt.Errorf("invalid limit provided: %v", cmd.args[0])
+		}
+	}
+
+	posts, err := s.db.GetPostsForUser(
+		context.Background(),
+		database.GetPostsForUserParams{UserID: user.ID, Limit: int32(limit)})
+	if err != nil {
+		return fmt.Errorf("failed to get posts: %w", err)
+	}
+
+	for _, post := range posts {
+		fmt.Println(post.Title.String)
+		fmt.Println()
+		fmt.Println(post.Description.String)
+		fmt.Println()
+		fmt.Println()
+		fmt.Println()
+	}
+
+	return nil
+}
+
 func handleAgg(s *state, cmd command) error {
 	if len(cmd.args) != 1 {
 		return fmt.Errorf("expected argument for time between requests")
@@ -250,7 +285,7 @@ func handleAgg(s *state, cmd command) error {
 		return fmt.Errorf("invalid argument for time between requests: %w", err)
 	}
 
-	fmt.Printf("Collecting feeds every %v\n", waitTime)
+	fmt.Printf("Collecting feeds every %v\n\n", waitTime)
 	ticker := time.NewTicker(waitTime)
 	for ; ; <-ticker.C {
 		err := scrapeNextFeed(s)
@@ -279,11 +314,38 @@ func scrapeNextFeed(s *state) error {
 		return fmt.Errorf("failed to fetch feed: %w", err)
 	}
 
-	fmt.Println(contents.Channel.Title)
 	for _, it := range contents.Channel.Item {
-		fmt.Printf("* %s\n", it.Title)
+
+		var pubDate time.Time
+		if it.PubDate != "" {
+			pubDate, err = time.Parse(time.RFC3339, it.PubDate)
+			if err != nil {
+				pubDate, err = time.Parse(time.RFC1123Z, it.PubDate)
+				if err != nil {
+					return fmt.Errorf("failed to parse pub date: %w", err)
+				}
+			}
+		}
+
+		_, err = s.db.CreatePost(context.Background(), database.CreatePostParams{
+			ID:          uuid.New(),
+			Title:       sql.NullString{String: it.Title, Valid: it.Title != ""},
+			Url:         sql.NullString{String: it.Link, Valid: it.Link != ""},
+			Description: sql.NullString{String: it.Description, Valid: it.Description != ""},
+			PublishedAt: sql.NullTime{Time: pubDate, Valid: !pubDate.IsZero()},
+			FeedID:      feed.ID,
+		})
+		if err != nil {
+			var perr *pq.Error
+			if errors.As(err, &perr) {
+				if perr.Code == "23505" {
+					// unique violation -- ignore as will be url unique constraint
+					continue
+				}
+			}
+			return fmt.Errorf("failed to create post: %w", err)
+		}
 	}
-	fmt.Println()
 
 	return nil
 }
@@ -303,6 +365,8 @@ func main() {
 	c.register("follow", middlewareLoggedIn(handleFollow))
 	c.register("unfollow", middlewareLoggedIn(handleUnfollow))
 	c.register("following", middlewareLoggedIn(handleFollowing))
+
+	c.register("browse", middlewareLoggedIn(handleBrowse))
 
 	c.register("agg", handleAgg)
 
